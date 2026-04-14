@@ -1,9 +1,9 @@
 # HARA — Electronic Stability Control (ESC)
 
 **Standard:** ISO 26262-3  
-**Date:** 2026-04-06  
+**Date:** 2026-04-08  
 **Status:** Draft  
-**Version:** 1.0  
+**Version:** 1.1  
 
 ---
 
@@ -190,14 +190,188 @@
 
 ## 6. Safety Goals
 
-| SG ID  | Safety Goal                                                                                                                 | ASIL  | Safe State                                              | FTTI   |
-|--------|-----------------------------------------------------------------------------------------------------------------------------|-------|---------------------------------------------------------|--------|
-| SG-001 | ESC shall not apply unintended individual wheel brake pressure exceeding [TBD bar] during normal driving conditions         | **D** | Remove all ESC braking commands; deactivate ESC function | 50 ms  |
-| SG-002 | ESC shall detect vehicle instability and initiate corrective braking within [TBD ms] across all operating conditions        | **C** | Disable ESC; illuminate ESC warning lamp to driver       | 200 ms |
-| SG-003 | ESC shall not command engine torque reduction greater than [TBD %] without a confirmed instability event                    | **B** | Restore full torque demand; deactivate ESC              | 100 ms |
-| SG-004 | ESC shall not reduce ABS control authority during a combined braking and steering maneuver                                  | **B** | ABS retains priority; ESC suspends all interventions    | 20 ms  |
-
 > **Note:** Values marked [TBD] shall be determined during system-level functional safety requirements definition (ISO 26262-4) and confirmed via vehicle dynamics simulation and test.
+
+---
+
+### SG-001 — Unintended Individual Wheel Braking
+
+**Safety Goal:** ESC shall not apply unintended individual wheel brake pressure exceeding [TBD bar] during normal driving conditions.
+
+**Item:** Electronic Stability Control (ESC) — see Section 1 item boundary.
+
+**Hazardous Events Addressed:**
+
+| Hazard | Event | S  | E  | C  | ASIL |
+|--------|-------|----|----|----|------|
+| H-001  | Unintended single-wheel braking on dry highway — severe yaw moment → spin → rollover | S3 | E3 | C3 | D |
+| H-002  | Asymmetric braking during hard straight-line stop — vehicle pulls sideways during ABS stop | S3 | E3 | C3 | D |
+
+**ASIL:** **D** (worst-case hazard determines goal ASIL)
+
+**ASIL Derivation:**
+
+| Parameter | Rating | Rationale |
+|-----------|--------|-----------|
+| Severity | S3 | Rollover or oncoming-lane intrusion at highway speed is potentially fatal |
+| Exposure | E3 | Highway/motorway driving occurs 10–50% of operating time |
+| Controllability | C3 | Driver cannot recover a high-speed spin; reaction time insufficient |
+
+**FTTI:** 50 ms
+> Budget rationale: vehicle dynamics modelling indicates yaw divergence becomes unrecoverable within 80–100 ms at 100 km/h; 50 ms FTTI leaves 30–50 ms margin for driver/system reaction. Value subject to validation per OI-01.
+
+**Safe State:** ESC braking function deactivated; base brake and ABS authority fully restored to driver.
+
+- All ESC hydraulic pressure modulation commands removed immediately
+- ESC ECU transitions to passive monitoring mode (no actuation)
+- ABS and base brake system retain full authority unaffected
+- ESC warning lamp illuminated on instrument cluster
+- DTC stored with freeze-frame data (vehicle speed, yaw rate, wheel pressures at fault onset)
+- ESC function remains deactivated until driver cycle or service reset
+
+**Verification Criteria:**
+
+| Criterion | Method | Pass Condition |
+|-----------|--------|----------------|
+| No unintended actuation under normal driving stimuli | SIL / HIL regression | Zero spurious brake commands across 10 000 test cycles |
+| FTTI ≤ 50 ms from fault onset to safe state | HIL fault injection | Fault-to-safe-state time < 50 ms in all injected scenarios |
+| Safe state persists until intentional reset | HIL state verification | ESC does not self-re-enable after safe state entry |
+| Warning lamp activates within 500 ms of safe state entry | HIL / vehicle test | Lamp state confirmed via CAN signal and physical check |
+| DTC stored with correct freeze-frame | Diagnostic read-back | DTC present and freeze-frame data plausible after fault |
+
+---
+
+### SG-002 — Failure to Detect and Correct Vehicle Instability
+
+**Safety Goal:** ESC shall detect vehicle instability and initiate corrective braking within [TBD ms] across all operating conditions.
+
+**Item:** Electronic Stability Control (ESC) — see Section 1 item boundary.
+
+**Hazardous Events Addressed:**
+
+| Hazard | Event | S  | E  | C  | ASIL |
+|--------|-------|----|----|----|------|
+| H-003  | Failure to activate during oversteer/understeer on icy curve — vehicle continues off-road | S3 | E2 | C3 | C |
+| H-006  | Incorrect wheel selection during emergency evasive maneuver — yaw overshoot, vehicle spins | S3 | E2 | C3 | C |
+
+**ASIL:** **C** (worst-case hazard determines goal ASIL)
+
+**ASIL Derivation:**
+
+| Parameter | Rating | Rationale |
+|-----------|--------|-----------|
+| Severity | S3 | Off-road excursion into barrier or ditch at speed is life-threatening |
+| Exposure | E2 | Icy road or emergency evasive conditions occur 2–10% of operating time |
+| Controllability | C3 | Loss of control on ice or during yaw overshoot is largely unrecoverable |
+
+**FTTI:** 200 ms
+> Budget rationale: yaw rate divergence on low-friction surfaces develops over approximately 300–500 ms; 200 ms FTTI provides approximately 100–300 ms for corrective intervention to take effect. Value subject to validation per OI-01.
+
+**Safe State:** ESC deactivated with driver notification; driver retains full manual control with no hidden system interference.
+
+- ESC actuation suspended; no corrective braking or torque commands issued
+- ESC warning lamp illuminated to inform driver of degraded stability assist
+- ABS and base braking retained at full authority
+- DTC stored with freeze-frame data (yaw rate deviation, wheel speeds, road speed)
+- System remains in degraded mode until driver cycle or service reset
+
+**Verification Criteria:**
+
+| Criterion | Method | Pass Condition |
+|-----------|--------|----------------|
+| Instability detection within FTTI across all OS conditions | HIL with plant model (ice, wet, dry) | Detection confirmed before FTTI in 100% of test scenarios |
+| Correct wheel selected for corrective braking | SIL back-to-back vs. reference model | Wheel selection matches reference in ≥ 99.9% of cases |
+| No missed activation in oversteer / understeer scenarios | HIL fault injection | Zero missed activations in standardised test matrix |
+| Safe state reached and maintained on detection fault | HIL fault injection | Safe state entered within FTTI; no spurious re-activation |
+
+---
+
+### SG-003 — Unintended Engine Torque Reduction
+
+**Safety Goal:** ESC shall not command engine torque reduction greater than [TBD %] without a confirmed instability event.
+
+**Item:** Electronic Stability Control (ESC) — see Section 1 item boundary.
+
+**Hazardous Events Addressed:**
+
+| Hazard | Event | S  | E  | C  | ASIL |
+|--------|-------|----|----|----|------|
+| H-004  | Unintended engine torque reduction at motorway cruise — sudden deceleration → rear-end collision | S2 | E4 | C2 | B |
+| H-005  | Continuous unintended ESC interventions in urban driving — unexpected deceleration near pedestrians | S2 | E4 | C2 | B |
+
+**ASIL:** **B** (worst-case hazard determines goal ASIL)
+
+**ASIL Derivation:**
+
+| Parameter | Rating | Rationale |
+|-----------|--------|-----------|
+| Severity | S2 | Rear-end collision or pedestrian contact at low-to-medium speed causes severe injury; survival probable |
+| Exposure | E4 | Motorway cruising and urban driving collectively represent > 50% of operating time |
+| Controllability | C2 | Driver is partially aware and can react; following driver has reduced reaction time |
+
+**FTTI:** 100 ms
+> Budget rationale: unexpected deceleration at motorway speed (120 km/h) presents rear-collision risk within approximately 200–400 ms depending on following distance and driver reaction; 100 ms FTTI allows sufficient intervention margin.
+
+**Safe State:** Full powertrain torque authority restored; ESC torque reduction interface deactivated.
+
+- ESC torque reduction request to powertrain set to zero / withdrawn
+- Powertrain ECU resumes normal torque management without ESC override
+- ESC torque-reduction channel flagged as unavailable; function disabled
+- ESC warning lamp illuminated
+- DTC stored with torque demand and vehicle speed at fault onset
+
+**Verification Criteria:**
+
+| Criterion | Method | Pass Condition |
+|-----------|--------|----------------|
+| No torque reduction commanded absent instability confirmation | SIL regression | Zero unconfirmed torque reduction requests across 5 000 test cycles |
+| Torque restored within FTTI on spurious command detection | HIL fault injection | Torque restoration latency < 100 ms in all injected scenarios |
+| Torque reduction magnitude does not exceed [TBD %] threshold | SIL / HIL signal monitoring | All commanded reductions ≤ defined threshold |
+| Continued operation without ESC torque channel does not affect base drivability | Vehicle test | No drivability defects noted in structured drive evaluation |
+
+---
+
+### SG-004 — ESC Suppression of ABS Authority
+
+**Safety Goal:** ESC shall not reduce ABS control authority during a combined braking and steering maneuver.
+
+**Item:** Electronic Stability Control (ESC) — see Section 1 item boundary.
+
+**Hazardous Events Addressed:**
+
+| Hazard | Event | S  | E  | C  | ASIL |
+|--------|-------|----|----|----|------|
+| H-007  | ESC state machine conflict suspends ABS authority — wheel lock-up → loss of steering during emergency brake + steer | S3 | E2 | C2 | B |
+
+**ASIL:** **B**
+
+**ASIL Derivation:**
+
+| Parameter | Rating | Rationale |
+|-----------|--------|-----------|
+| Severity | S3 | Wheel lock-up during combined braking and steering results in loss of directional control; potentially fatal |
+| Exposure | E2 | Emergency combined brake-and-steer events occur 2–10% of operating time |
+| Controllability | C2 | Driver may partially compensate with steering corrections; not fully uncontrollable |
+
+**FTTI:** 20 ms
+> Budget rationale: ABS cycle time is typically 10–15 ms; allowing one ABS cycle of impaired authority before correction keeps the window within a single control period. Loss of ABS authority for more than one cycle risks wheel lock-up and steering loss.
+
+**Safe State:** ABS retains unconditional priority; all ESC hydraulic interventions suspended.
+
+- ESC wheel-pressure modulation commands immediately inhibited
+- ABS control loop regains sole authority over wheel cylinder pressures
+- ESC state machine reset to idle; no further interventions until next ignition cycle
+- ESC warning lamp illuminated
+- DTC stored with ESC state and ABS arbitration status at fault onset
+
+**Verification Criteria:**
+
+| Criterion | Method | Pass Condition |
+|-----------|--------|----------------|
+| ABS authority not interrupted during any combined brake + steer input | HIL with combined pedal + steering stimuli | ABS wheel-slip control active and uninterrupted across all combined maneuver scenarios |
+| Safe state reached within FTTI = 20 ms | HIL fault injection (state machine conflict injection) | ABS priority restored < 20 ms from conflict detection in all scenarios |
+| ESC does not re-engage during ABS active cycle | HIL signal monitoring | Zero ESC hydraulic commands observed while ABS active flag is set |
+| No degradation to ABS stopping distance | HIL performance test | Stopping distance within ± 5% of ABS-only baseline |
 
 ---
 
@@ -226,3 +400,4 @@
 | Version | Date       | Author | Changes       |
 |---------|------------|--------|---------------|
 | 1.0     | 2026-04-06 | —      | Initial draft |
+| 1.1     | 2026-04-08 | —      | Section 6 Safety Goals expanded to structured per-goal format per ISO 26262-3 skill template: added item reference, hazardous event traceability, ASIL derivation table (S/E/C), FTTI budget rationale, detailed safe state description, and verification criteria for SG-001 through SG-004 |
